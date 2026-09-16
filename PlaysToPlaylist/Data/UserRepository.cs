@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -32,7 +32,7 @@ public sealed class UserRepository
         return
                 this._database.QueryAsync(
                 """
-                    SELECT 
+                    SELECT
                         id,
                         beatleader_id,
                         alias,
@@ -62,60 +62,31 @@ public sealed class UserRepository
     /// <returns>指定された BeatLeaderId に一致する登録済みユーザー、存在しない場合は null。</returns>
     public async Task<Models.RegisteredUser?> FindByBeatLeaderIdAsync(string beatLeaderId)
     {
-        return
-            await
-                this._database.QuerySingleOrDefaultAsync<Models.RegisteredUser>(
-                """
-                    SELECT 
-                        id,
-                        beatleader_id,
-                        alias,
-                        name,
-                        avatar_url,
-                        created_at,
-                        updated_at
-                    FROM 
-                        USERS 
-                    WHERE 
-                        beatleader_id = @beatLeaderId
-                """,
-                new Dictionary<string, object>()
-                {
-                    { "@beatLeaderId", beatLeaderId }
-                }
-            );
+        var users = await GetAllAsync();
+        return users.FirstOrDefault(user => user.BeatLeaderId == beatLeaderId);
     }
-
-    /// <summary>
-    /// 指定された情報を使用して、新しい登録済みユーザーを非同期的に追加します。
-    /// </summary>
-    /// <param name="beatLeaderId">追加するユーザーの BeatLeaderId。</param>
-    /// <param name="alias">追加するユーザーのエイリアス。</param>
-    /// <param name="name">追加するユーザーの名前。</param>
-    /// <param name="avatarUrl">追加するユーザーのアバター URL。</param>
-    /// <returns>非同期操作を表すタスク。</returns>
     public async Task AddAsync(
         string beatLeaderId,
-        string alias,
+        string? alias,
         string name,
-        string avatarUrl)
+        string? avatarUrl)
     {
         await this._database.ExecuteTransactionAsync(
              (connection, transaction) =>
              {
                  using var command = connection.CreateCommand();
                  command.CommandText = @"
-                    INSERT INTO 
+                    INSERT INTO
                         Users(
-                            beatleader_id, 
-                            alias, 
-                            name, 
+                            beatleader_id,
+                            alias,
+                            name,
                             avatar_url
                         )
                     VALUES (
-                        @beatLeaderId, 
-                        @alias, 
-                        @name, 
+                        @beatLeaderId,
+                        @alias,
+                        @name,
                         @avatarUrl
                     );
                 ";
@@ -163,14 +134,14 @@ public sealed class UserRepository
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = @"
-                    UPDATE 
+                    UPDATE
                         Users
-                    SET 
+                    SET
                         alias = @alias,
                         name = @name,
                         avatar_url = @avatarUrl,
                         updated_at = datetime('now', 'localtime')
-                    WHERE 
+                    WHERE
                         id = @id;
                 ";
                 command.Parameters.AddWithValue("@id", id);
@@ -209,9 +180,11 @@ public sealed class UserRepository
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = @"
-                    DELETE FROM 
+                    DELETE FROM Plays WHERE user_id = @id;
+                    DELETE FROM History_Cache_Days WHERE user_id = @id;
+                    DELETE FROM
                         Users
-                    WHERE 
+                    WHERE
                         id = @id;
                 ";
                 command.Parameters.AddWithValue("@id", id);
@@ -220,4 +193,3 @@ public sealed class UserRepository
             doCommit: true);
     }
 }
-

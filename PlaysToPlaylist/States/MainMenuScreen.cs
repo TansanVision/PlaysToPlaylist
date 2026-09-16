@@ -1,43 +1,26 @@
-﻿using PlaystoPlaylist.States.User;
+using PlaystoPlaylist.States.User;
+using PlaysToPlaylist.Localization;
 using Spectre.Console;
 
 namespace PlaystoPlaylist.States;
 
-/// <summary>
-/// メインメニューのスクリーンを表します。
-/// </summary>
 public sealed class MainMenuScreen : IScreen
 {
-    /// <summary>
-    /// 実行します。
-    /// </summary>
-    /// <param name="context">スクリーンのコンテキスト</param>
-    /// <param name="cancellationToken">キャンセレーション トークン</param>
-    /// <returns><see cref="Task"/></returns>
-    public Task ExecuteAsync(
-        ScreenContext context, 
-        CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(ScreenContext context, CancellationToken cancellationToken = default)
     {
-        AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("[bold yellow]Attempts To Playlist / Main Menu[/]");
-        var menu = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("[gray]メニューを選択してください:[/]")
-                .AddChoices(["Select User", "Add User", "Exit"]));
-
-        switch (menu)
+        ScreenUi.Header("MainMenu");
+        switch (await ScreenUi.ChooseAsync(Texts.Get("ChooseMenu"), cancellationToken, "SelectUser", "AddUser", "Language", "Exit"))
         {
-            case "Select User":
-                context.ChangeScreen(new UserSelectScreen());
+            case "SelectUser": context.ChangeScreen(new UserSelectScreen()); break;
+            case "AddUser": context.ChangeScreen(new UserAddScreen()); break;
+            case "Language":
+                var language = await AnsiConsole.PromptAsync(new SelectionPrompt<string>()
+                    .Title("言語 / Language").AddChoices("日本語", "English"), cancellationToken);
+                Texts.SetLanguage(language == "日本語" ? "ja" : "en");
+                File.WriteAllText(Path.Combine(context.Services.AppPaths.DataDirectory, "language.txt"), Texts.Language);
                 break;
-            case "Add User":
-                context.ChangeScreen(new UserAddScreen());
-                break;
-            case "Exit":
-                context.Exit();
-                break;
+            case "Exit": context.Exit(); break;
         }
 
-        return Task.CompletedTask;
     }
 }

@@ -20,6 +20,13 @@ public sealed class BeatSaberPlaylist
     public string PlaylistAuthor { get; set; } = string.Empty;
 
     /// <summary>
+    /// Base64のData URIとして埋め込むカバー画像です。
+    /// </summary>
+    [JsonPropertyName("image")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Image { get; set; }
+
+    /// <summary>
     /// プレイリストの曲の配列を取得または設定します。
     /// </summary>
     [JsonPropertyName("songs")]

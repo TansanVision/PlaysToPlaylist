@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Data;
+using PlaystoPlaylist.Data;
 using PlaystoPlaylist.Models;
 using PlaysToPlaylist.Models;
 using System.Text.Encodings.Web;
@@ -26,6 +26,7 @@ public sealed class PlaylistService
     /// アプリケーションのパスを管理するオブジェクトを保持するフィールドです。
     /// </summary>
     private readonly AppPaths _paths;
+    private readonly PlaylistImageService _imageService;
 
     /// <summary>
     /// JSON シリアライズのオプションを保持するフィールドです。
@@ -43,14 +44,17 @@ public sealed class PlaylistService
     /// <param name="historyService">プレイ履歴の管理に関連するサービス</param>
     /// <param name="playRepository">プレイリストのデータを管理するリポジトリ</param>
     /// <param name="paths">アプリケーションのパスを管理するオブジェクト</param>
+    /// <param name="imageService">カバー画像を取得するサービス</param>
     public PlaylistService(
         HistoryService historyService,
         PlayRepository playRepository,
-        AppPaths paths)
+        AppPaths paths,
+        PlaylistImageService imageService)
     {
         this._historyService = historyService;
         this._playRepository = playRepository;
         this._paths = paths;
+        this._imageService = imageService;
     }
 
     /// <summary>
@@ -66,14 +70,17 @@ public sealed class PlaylistService
         RegisteredUser user,
         DateOnly from,
         DateOnly to,
-        Action<HistorySyncProgress> progress = null,
+        Action<HistorySyncProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         if (from > to)
         {
-            throw new ArgumentException("開始日は終了日より前である必要があります。");
+            throw new ArgumentException(PlaysToPlaylist.Localization.Texts.Get("InvalidRange"));
         }
 
+        if (to > PlaystoPlaylist.States.ScreenUi.TodayInJapan)
+            throw new ArgumentException(PlaysToPlaylist.Localization.Texts.Get("FutureDate"));
+        AppPaths.ValidatePlayerId(user.BeatLeaderId);
         var range = CreateUtcRange(from, to);
 
         var historyResult =
@@ -90,11 +97,13 @@ public sealed class PlaylistService
                 range.From,
                 range.To);
 
+        var image = await _imageService.GetImageAsync(user.AvatarUrl, cancellationToken);
         var playlist =
             new BeatSaberPlaylist
             {
                 PlaylistTitle = CreatePlaylistTitle(user, from, to),
                 PlaylistAuthor = $"PlaysToPlaylist",
+                Image = image,
                 Songs = [.. songs.Select(s => new BeatSaberPlaylistSong
                 {
                     SongName = s.Name,
@@ -103,7 +112,7 @@ public sealed class PlaylistService
                     Difficulties = [.. s.Dificulties.Select(d => new BeatSaberPlaylistDifficulty
                     {
                         Characteristic = d.Characteristic,
-                        Name = d.Name
+                        Name = d.Name.Replace("+", "Plus", StringComparison.Ordinal)
                     })]
                 })]
             };
@@ -112,12 +121,23 @@ public sealed class PlaylistService
 
         var path = this._paths.GetPlaylistPath(user.BeatLeaderId, from, to);
 
-        await File.WriteAllTextAsync(path, json, cancellationToken);
+        var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await File.WriteAllTextAsync(temporaryPath, json, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
 
         return new PlaylistCreateResult(
             Path: path,
             SongCount: songs.Length,
-            History: historyResult
+            History: historyResult,
+            ThumbnailUnavailable: !string.IsNullOrWhiteSpace(user.AvatarUrl) && image is null
         );
     }
 
@@ -129,16 +149,16 @@ public sealed class PlaylistService
     /// <param name="to">期間の終了日</param>
     /// <returns>作成されたプレイリストのタイトル</returns>
     private static string CreatePlaylistTitle(
-        RegisteredUser user, 
-        DateOnly from, 
+        RegisteredUser user,
+        DateOnly from,
         DateOnly to)
     {
         if (from == to)
         {
-            return $"{user.Name} - {from:yyyy-MM-dd}";
+            return FormattableString.Invariant($"{user.Name} - {from:yyyy-MM-dd}");
         }
-        
-        return $"{user.Name} - {from:yyyy-MM-dd} to {to:yyyy-MM-dd}";
+
+        return FormattableString.Invariant($"{user.Name} - {from:yyyy-MM-dd} to {to:yyyy-MM-dd}");
     }
 
     /// <summary>
@@ -148,33 +168,33 @@ public sealed class PlaylistService
     /// <param name="to">期間の終了日</param>
     /// <returns>UTC に変換された日付範囲を表す DateRange オブジェクト</returns>
     private static DateRange CreateUtcRange(
-        DateOnly from, 
+        DateOnly from,
         DateOnly to)
     {
         var japanTimeZone = GetJapanTimeZone();
 
-        var startLocal = 
+        var startLocal =
             from.ToDateTime(
                 TimeOnly.MinValue,
                 DateTimeKind.Unspecified);
 
-        var endLocal = 
+        var endLocal =
             to.AddDays(1)
               .ToDateTime(
-                TimeOnly.MinValue, 
+                TimeOnly.MinValue,
                 DateTimeKind.Unspecified);
 
-        var startUtc = 
+        var startUtc =
             TimeZoneInfo.ConvertTimeToUtc(
-                startLocal, 
+                startLocal,
                 japanTimeZone);
 
-        var endUtc = 
+        var endUtc =
             TimeZoneInfo.ConvertTimeToUtc(
-                endLocal, 
+                endLocal,
                 japanTimeZone);
 
-        return 
+        return
             new DateRange(
                 startUtc.ToUniversalTime(),
                 endUtc.ToUniversalTime());

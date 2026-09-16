@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Services;
+using PlaystoPlaylist.Services;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using System;
@@ -28,7 +28,7 @@ public sealed class Database
     /// <param name="path">アプリケーションのパスを管理するオブジェクト。</param>
     public Database(AppPaths path)
     {
-        this._connectionString = $"Data Source={path.DatabasePath}";
+        this._connectionString = new SqliteConnectionStringBuilder { DataSource = path.DatabasePath, ForeignKeys = true }.ToString();
     }
 
     /// <summary>
@@ -56,10 +56,10 @@ public sealed class Database
             }
 
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Transaction failed: {ex.Message}");
-            Console.WriteLine(ex.ToString());
+
+
             transaction?.Rollback();
             throw;
         }

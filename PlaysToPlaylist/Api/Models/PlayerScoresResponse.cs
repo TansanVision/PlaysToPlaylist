@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -12,7 +12,7 @@ public sealed class PlayerScoresResponse
     /// <summary>
     /// プレイヤーのスコア情報のリストを取得または設定します。
     /// </summary>
-    public List<BeatLeaderScore> Data
+    public List<BeatLeaderScore>? Data
     {
         get;
         set;
@@ -36,6 +36,7 @@ public sealed class Metadata
     /// <summary>
     /// 1ページあたりのアイテム数を取得または設定します。
     /// </summary>
+    [System.Text.Json.Serialization.JsonRequired]
     public int ItemsPerPage
     {
         get;
@@ -45,6 +46,7 @@ public sealed class Metadata
     /// <summary>
     /// 現在のページ番号を取得または設定します。
     /// </summary>
+    [System.Text.Json.Serialization.JsonRequired]
     public int Page
     {
         get;
@@ -54,6 +56,7 @@ public sealed class Metadata
     /// <summary>
     /// 総アイテム数を取得または設定します。
     /// </summary>
+    [System.Text.Json.Serialization.JsonRequired]
     public int Total
     {
         get;

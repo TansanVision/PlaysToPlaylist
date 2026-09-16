@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Models;
+using PlaystoPlaylist.Models;
 
 namespace PlaystoPlaylist.Data;
 
@@ -42,7 +42,7 @@ public sealed class PlayRepository
 
         return
             await _database.QuerySingleOrDefaultAsync<bool>(
-                query, 
+                query,
                 new Dictionary<string, object>
                 {
                     { "@beatLeaderScoreId", beatLeaderScoreId }
@@ -82,13 +82,13 @@ public sealed class PlayRepository
         int? missedNotes,
         int bombCuts,
         int wallsHit,
-        string modifiers,
+        string? modifiers,
         DateTimeOffset playedAt)
     {
         await this._database.ExecuteTransactionAsync((connection, transaction) =>
         {
             string query = """
-                INSERT OR IGNORE INTO Plays (
+                INSERT INTO Plays (
                     beatleader_score_id,
                     user_id,
                     beatmap_id,
@@ -120,7 +120,7 @@ public sealed class PlayRepository
                     @wallsHit,
                     @modifiers,
                     @playedAt
-                );
+                ) ON CONFLICT(beatleader_score_id) DO NOTHING;
             """;
 
             using var command = connection.CreateCommand();
@@ -138,7 +138,7 @@ public sealed class PlayRepository
             command.Parameters.AddWithValue("@missedNotes", missedNotes ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("@bombCuts", bombCuts);
             command.Parameters.AddWithValue("@wallsHit", wallsHit);
-            command.Parameters.AddWithValue("@modifiers", modifiers);
+            command.Parameters.AddWithValue("@modifiers", modifiers ?? (object)DBNull.Value);
             command.Parameters.AddWithValue("@playedAt", playedAt.ToUniversalTime().ToString("O"));
             command.ExecuteNonQuery();
         }, doCommit: true);
@@ -152,15 +152,15 @@ public sealed class PlayRepository
     /// <param name="to">取得終了日時</param>
     /// <returns>プレイされた曲の情報の配列</returns>
     public async Task<PlaylistSong[]> GetPlaylistSongsAsync(
-        long userId, 
+        long userId,
         DateTimeOffset from,
         DateTimeOffset to)
     {
         string query = """
-            SELECT DISTINCT
+            SELECT
                 s.beatleader_song_id AS Key,
                 s.hash AS Hash,
-                s.name || s.sub_name AS SongName,
+                trim(s.name || ' ' || coalesce(s.sub_name, '')) AS SongName,
                 b.mode_name AS Characteristic,
                 b.difficulty_name AS DifficultyName
             FROM plays p
@@ -168,21 +168,22 @@ public sealed class PlayRepository
             INNER JOIN songs s ON b.song_id = s.id
             WHERE p.user_id = @userId
               AND p.played_at >= @from
-              AND p.played_at <= @to
+              AND p.played_at < @to
+            GROUP BY s.hash, b.mode_name, b.difficulty_name
             ORDER BY
-              p.played_at DESC,
+              max(p.played_at) DESC,
               b.mode_name ASC,
               b.difficulty_name ASC
             ;
-                
+
         """;
 
-        var result = 
+        var result =
             await _database.QueryAsync(
                 query,
                 row => new PlaylistSongRow
                 {
-                    Key = row.GetString(0),
+                    Key = row.IsDBNull(0) ? null : row.GetString(0),
                     Hash = row.GetString(1),
                     Name = row.GetString(2),
                     Characteristic = row.GetString(3),
@@ -191,13 +192,13 @@ public sealed class PlayRepository
                 new Dictionary<string, object>
                 {
                     { "@userId", userId },
-                    { "@from", from.UtcDateTime.ToString("O") },
-                    { "@to", to.UtcDateTime.ToString("O") }
+                    { "@from", from.ToUniversalTime().ToString("O") },
+                    { "@to", to.ToUniversalTime().ToString("O") }
                 });
 
         return
             [.. result.GroupBy(x => x.Hash, StringComparer.OrdinalIgnoreCase)
-                  .Select(group => 
+                  .Select(group =>
                   {
                       var first = group.First();
 
@@ -225,7 +226,7 @@ class PlaylistSongRow
     /// <summary>
     /// 曲のキーを取得または設定します。
     /// </summary>
-    public string Key { get; set; } = string.Empty;
+    public string? Key { get; set; }
 
     /// <summary>
     /// 曲のハッシュを取得または設定します。

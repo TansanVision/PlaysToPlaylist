@@ -1,4 +1,5 @@
-﻿using PlaystoPlaylist.Api;
+using PlaysToPlaylist.Localization;
+using PlaystoPlaylist.Api;
 using PlaystoPlaylist.Models;
 
 namespace PlaystoPlaylist.Services;
@@ -24,7 +25,7 @@ public sealed class UserService
     /// <param name="beatLeaderClient">BeatLeader API への HTTP リクエストを送信するための BeatLeaderClient インスタンス。</param>
     /// <param name="userRepository">登録済みユーザーの情報を管理するための UserRepository インスタンス。</param>
     public UserService(
-        BeatLeaderClient beatLeaderClient, 
+        BeatLeaderClient beatLeaderClient,
         Data.UserRepository userRepository)
     {
         this._beatLeaderClient = beatLeaderClient;
@@ -58,22 +59,21 @@ public sealed class UserService
     }
 
     /// <summary>
-    /// 指定されたユーザー ID が登録されているかどうかを非同期的に確認します。
+    /// 指定された BeatLeader ID が登録されているかどうかを非同期的に確認します。
     /// </summary>
-    /// <param name="idOrBeatLeaderId">確認するユーザーの ID または BeatLeader ID。</param>
+    /// <param name="beatLeaderId">確認する BeatLeader ID。</param>
     /// <param name="cancellationToken">操作をキャンセルするためのトークン。</param>
     /// <returns>指定されたユーザー ID が登録されている場合は true、登録されていない場合は false。</returns>
     public async Task<bool> ExistsUserByIdAsync(
-        string idOrBeatLeaderId,
+        string beatLeaderId,
         CancellationToken cancellationToken = default)
     {
-        var allUsers = 
+        cancellationToken.ThrowIfCancellationRequested();
+        var allUsers =
             await this._userRepository.GetAllAsync();
 
-        return 
-            allUsers.Any(user => 
-                user.Id.ToString() == idOrBeatLeaderId || 
-                user.BeatLeaderId == idOrBeatLeaderId);
+        return
+            allUsers.Any(user => user.BeatLeaderId == beatLeaderId.Trim());
     }
 
     /// <summary>
@@ -89,28 +89,33 @@ public sealed class UserService
         string? alias = null,
         CancellationToken cancellationToken = default)
     {
+        playerId = playerId.Trim();
+        AppPaths.ValidatePlayerId(playerId);
+        cancellationToken.ThrowIfCancellationRequested();
         var existing =
             await this._userRepository.FindByBeatLeaderIdAsync(playerId);
 
         if (existing is not null)
         {
-            throw new InvalidOperationException($"User {existing.Name} is already registered.");
+            throw new InvalidOperationException(Texts.Get("Duplicate"));
         }
 
         var player =
-            await this._beatLeaderClient.GetPlayerAsync(playerId, cancellationToken) 
-            ?? throw new InvalidOperationException($"BeatLeader player was not found.");
+            await this._beatLeaderClient.GetPlayerAsync(playerId, cancellationToken)
+            ?? throw new InvalidOperationException(Texts.Get("NotFound"));
 
-        await 
-            this._userRepository.AddAsync(
+        AppPaths.ValidatePlayerId(player.Id);
+        if (await _userRepository.FindByBeatLeaderIdAsync(player.Id) is not null)
+            throw new InvalidOperationException(Texts.Get("Duplicate"));
+        await this._userRepository.AddAsync(
                 beatLeaderId: player.Id,
                 alias: alias,
                 name: player.Name,
                 avatarUrl: player.Avatar);
 
-        return 
+        return
             await this._userRepository.FindByBeatLeaderIdAsync(player.Id)
-            ?? throw new InvalidOperationException($"Failed to load registered user.");
+            ?? throw new InvalidOperationException(Texts.Get("LoadFailed"));
     }
 
     /// <summary>
@@ -126,17 +131,17 @@ public sealed class UserService
     {
         var player =
             await this._beatLeaderClient.GetPlayerAsync(user.BeatLeaderId, cancellationToken)
-            ?? throw new InvalidOperationException($"BeatLeader player was not found.");
+            ?? throw new InvalidOperationException(Texts.Get("NotFound"));
 
         await this._userRepository.UpdateAsync(
-            user.Id, 
-            user.Alias, 
-            user.Name, 
-            user.AvatarUrl);
+            user.Id,
+            user.Alias,
+            player.Name,
+            player.Avatar);
 
         return
             await this._userRepository.FindByBeatLeaderIdAsync(player.Id)
-            ?? throw new InvalidOperationException($"Failed to load registered user.");
+            ?? throw new InvalidOperationException(Texts.Get("LoadFailed"));
     }
 
     /// <summary>

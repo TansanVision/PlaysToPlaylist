@@ -1,4 +1,4 @@
-﻿namespace PlaystoPlaylist.Data;
+namespace PlaystoPlaylist.Data;
 
 /// <summary>
 /// ビートマップのリポジトリを表すクラスです。
@@ -53,7 +53,7 @@ public sealed class BeatmapRepository
                     @modeName,
                     @difficultyValue
                 )
-                ON CONFLICT(leaderboard_id) 
+                ON CONFLICT(leaderboard_id)
                 DO UPDATE SET
                     song_id = excluded.song_id,
                     difficulty_name = excluded.difficulty_name,
@@ -69,7 +69,7 @@ public sealed class BeatmapRepository
                 command.Parameters.AddWithValue("@leaderBoardId", leaderBoardId);
                 command.Parameters.AddWithValue("@difficultyName", difficultyName);
                 command.Parameters.AddWithValue("@modeName", modeName);
-                command.Parameters.AddWithValue("@difficultyValue", difficultyValue);
+                command.Parameters.AddWithValue("@difficultyValue", difficultyValue ?? (object)DBNull.Value);
 
                 using var reader = command.ExecuteReader();
                 if (reader.Read())

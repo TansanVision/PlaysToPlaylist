@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Api;
+using PlaystoPlaylist.Api;
 using PlaystoPlaylist.Api.Models;
 using PlaystoPlaylist.Data;
 using PlaystoPlaylist.Models;
@@ -78,174 +78,92 @@ public sealed class HistoryService
         RegisteredUser user,
         DateTimeOffset from,
         DateTimeOffset to,
-        Action<HistorySyncProgress> progress,
+        Action<HistorySyncProgress>? progress,
         CancellationToken cancellationToken = default)
     {
-        if (from > to)
-        {
-            throw new ArgumentException("from must be before to");
-        }
-
+        if (from >= to)
+            throw new ArgumentException(PlaysToPlaylist.Localization.Texts.Get("InvalidRange"));
+        cancellationToken.ThrowIfCancellationRequested();
         var fromDate = GetJapanDate(from);
         var toDate = GetJapanDate(to.AddTicks(-1));
+        var today = GetJapanDate(DateTimeOffset.UtcNow);
+        if (toDate > today)
+            throw new ArgumentException(PlaysToPlaylist.Localization.Texts.Get("FutureDate"));
         var requestedDays = toDate.DayNumber - fromDate.DayNumber + 1;
-
-        progress?.Invoke(
-            new HistorySyncProgress(
-            HistorySyncStage.CheckingCache,
-            CurrentRange: 0,
-            TotalRanges: 0,
-            From: fromDate,
-            To: toDate,
-            Fetched: 0,
-            Saved: 0,
-            AlreadyExists: 0,
-            Skipped: 0
-        ));
-
-        var completedDates = await _historyCacheRepository.GetCompletedDatesAsync(
-            user.Id,
-            fromDate,
-            toDate);
-
-        var missingDates = CreateMissingRanges(
-            fromDate,
-            toDate,
-            completedDates);
-
-        if (missingDates.Length == 0)
-        {
-            return new HistorySyncResult(
-                RequestedDays: requestedDays,
-                CachedDays: requestedDays,
-                DownloadedRanges: 0,
-                Fetched: 0,
-                Saved: 0,
-                AlreadyExists: 0,
-                Skipped: 0
-            );
-        }
-
         var fetched = 0;
         var saved = 0;
         var alreadyExists = 0;
         var skipped = 0;
-
-        for (var i = 0; i < missingDates.Length; i++)
+        void Report(HistorySyncStage stage, int current, int total, DateOnly start, DateOnly end) =>
+            progress?.Invoke(new HistorySyncProgress(stage, current, total, start, end, fetched, saved, alreadyExists, skipped));
+        Report(HistorySyncStage.CheckingCache, 0, 0, fromDate, toDate);
+        var completedDates = await _historyCacheRepository.GetCompletedDatesAsync(user.Id, fromDate, toDate);
+        // Today is still changing, including when an older version marked it complete.
+        completedDates.RemoveWhere(date => date >= today);
+        var missingRanges = CreateMissingRanges(fromDate, toDate, completedDates);
+        for (var i = 0; i < missingRanges.Length; i++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var range = missingDates[i];
+            var range = missingRanges[i];
             var apiFrom = ToUtcStartOfJapanDate(range.From);
             var apiTo = ToUtcStartOfJapanDate(range.To.AddDays(1));
-
-            progress?.Invoke(
-                new HistorySyncProgress(
-                    HistorySyncStage.Fetching,
-                    CurrentRange: i + 1,
-                    TotalRanges: missingDates.Length,
-                    From: range.From,
-                    To: range.To,
-                    Fetched: fetched,
-                    Saved: saved,
-                    AlreadyExists: alreadyExists,
-                    Skipped: skipped
-                ));
-
-            var response = await _beatLeaderClient.GetPlayerScoresAsync(
-                user.BeatLeaderId,
-                apiFrom,
-                apiTo,
-                cancellationToken: cancellationToken);
-
-            if (response is null)
-            {
-                continue;
-            }
-
-            foreach (var score in response.Data)
+            var skippedBefore = skipped;
+            var received = 0;
+            var seenIds = new HashSet<long>();
+            for (var page = 1; ; page++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                fetched++;
-
-                if (score.Timepost <= 0)
+                Report(HistorySyncStage.Fetching, i + 1, missingRanges.Length, range.From, range.To);
+                var response = await _beatLeaderClient.GetPlayerScoresAsync(user.BeatLeaderId, apiFrom, apiTo,
+                    cancellationToken, page, PageSize)
+                    ?? throw new InvalidDataException();
+                if (response.Metadata is null || response.Metadata.Page != page ||
+                    response.Metadata.ItemsPerPage <= 0 || response.Metadata.Total < 0)
+                    throw new InvalidDataException();
+                if (response.Data is null && response.Metadata.Total != 0)
+                    throw new InvalidDataException();
+                var scores = response.Data ?? [];
+                var newIds = 0;
+                foreach (var score in scores)
                 {
-                    skipped++;
-                    continue;
-                }
-
-                var playedAt = DateTimeOffset.FromUnixTimeSeconds(score.Timepost);
-
-                if (playedAt < apiFrom || playedAt >= apiTo)
-                {
-                    continue;
-                }
-
-                progress?.Invoke(
-                    new HistorySyncProgress(
-                        HistorySyncStage.Saving,
-                        CurrentRange: i + 1,
-                        TotalRanges: missingDates.Length,
-                        From: range.From,
-                        To: range.To,
-                        Fetched: fetched,
-                        Saved: saved,
-                        AlreadyExists: alreadyExists,
-                        Skipped: skipped
-                    ));
-
-                var result = await SaveScoreAsync(
-                    user,
-                    score,
-                    playedAt);
-
-                switch (result)
-                {
-                    case SaveScoreResult.Saved:
-                        saved++;
-                        break;
-                    case SaveScoreResult.AlreadyExists:
-                        alreadyExists++;
-                        break;
-                    case SaveScoreResult.Skipped:
+                    cancellationToken.ThrowIfCancellationRequested();
+                    fetched++;
+                    if (score is null) { skipped++; continue; }
+                    if (seenIds.Add(score.Id)) newIds++;
+                    else if (score.Id > 0) throw new InvalidDataException();
+                    if (score.Timepost <= 0 || score.Timepost > 253402300799)
+                    {
                         skipped++;
-                        break;
+                        continue;
+                    }
+                    var playedAt = DateTimeOffset.FromUnixTimeSeconds(score.Timepost);
+                    if (playedAt < apiFrom || playedAt >= apiTo) continue;
+                    switch (await SaveScoreAsync(user, score, playedAt))
+                    {
+                        case SaveScoreResult.Saved: saved++; break;
+                        case SaveScoreResult.AlreadyExists: alreadyExists++; break;
+                        case SaveScoreResult.Skipped: skipped++; break;
+                    }
                 }
+                Report(HistorySyncStage.Saving, i + 1, missingRanges.Length, range.From, range.To);
+                received += scores.Count;
+                if (received >= response.Metadata.Total) break;
+                // Never mark a truncated or repeated response as complete.
+                if (scores.Count == 0 || newIds == 0) throw new InvalidDataException();
             }
-
-            foreach (var date in EnumerableDates(range.From, range.To))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (skipped == skippedBefore)
             {
-                await _historyCacheRepository.MarkCompleteAsync(
-                    user.Id,
-                    date);
+                foreach (var date in EnumerableDates(range.From, range.To))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (date < today) await _historyCacheRepository.MarkCompleteAsync(user.Id, date);
+                }
             }
         }
-
-        progress?.Invoke(
-            new HistorySyncProgress(
-                HistorySyncStage.Completed,
-                CurrentRange: missingDates.Length,
-                TotalRanges: missingDates.Length,
-                From: fromDate,
-                To: toDate,
-                Fetched: fetched,
-                Saved: saved,
-                AlreadyExists: alreadyExists,
-                Skipped: skipped
-            ));
-
-        return new HistorySyncResult(
-            RequestedDays: requestedDays,
-            CachedDays: completedDates.Count,
-            DownloadedRanges: missingDates.Length,
-            Fetched: fetched,
-            Saved: saved,
-            AlreadyExists: alreadyExists,
-            Skipped: skipped
-        );
+        Report(HistorySyncStage.Completed, missingRanges.Length, missingRanges.Length, fromDate, toDate);
+        return new HistorySyncResult(requestedDays, completedDates.Count, missingRanges.Length,
+            fetched, saved, alreadyExists, skipped);
     }
-
     /// <summary>
     /// 指定された日付範囲内で、完了していない日付の範囲を作成します。
     /// </summary>
@@ -349,7 +267,8 @@ public sealed class HistoryService
             return SaveScoreResult.Skipped;
         }
 
-        if (string.IsNullOrWhiteSpace(song.Hash))
+        if (string.IsNullOrWhiteSpace(song.Hash) || string.IsNullOrWhiteSpace(leaderboard.Id) ||
+            string.IsNullOrWhiteSpace(difficulty.DifficultyName) || string.IsNullOrWhiteSpace(difficulty.ModeName))
         {
             return SaveScoreResult.Skipped;
         }

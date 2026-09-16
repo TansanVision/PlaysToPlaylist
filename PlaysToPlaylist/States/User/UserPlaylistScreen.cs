@@ -1,74 +1,33 @@
-﻿using PlaystoPlaylist.States;
-using Spectre.Console;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using PlaystoPlaylist.States;
+using PlaystoPlaylist.States.User;
+using PlaysToPlaylist.Localization;
 
 namespace PlaysToPlaylist.States.User;
 
 public sealed class UserPlaylistScreen : IScreen
 {
-    public async Task ExecuteAsync(
-        ScreenContext context,
-        CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(ScreenContext context, CancellationToken cancellationToken = default)
     {
-        AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("[bold yellow]Attempts To Playlist / Main Menu / User Playlist[/]");
-        var menu = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title($"[gray]メニューを選択してください(現在選択しているユーザー: {context.SelectedUser?.Name}({context.SelectedUser?.Id}) ):[/]")
-                .AddChoices(new[] { "Create", "Back" }));
-
-        switch (menu)
+        var user = context.SelectedUser;
+        if (user is null) { context.ChangeScreen(new UserSelectScreen()); return; }
+        ScreenUi.Header("Playlist");
+        if (await ScreenUi.ChooseAsync(Texts.Get("SelectedUser", user.Name, user.BeatLeaderId), cancellationToken, "Create", "Back") == "Back")
         {
-            case "Create":
-                while (true)
-                {
-                    var from = AnsiConsole.Prompt<DateOnly>(new TextPrompt<DateOnly>("[gray]Enter the start date (yyyy-MM-dd):[/]").Validate(date =>
-                    {
-                        if (date > DateOnly.FromDateTime(DateTime.Now))
-                        {
-                            return ValidationResult.Error("[red]The date cannot be in the future.[/]");
-                        }
-                        return ValidationResult.Success();
-                    }));
-
-                    var to = AnsiConsole.Prompt<DateOnly>(new TextPrompt<DateOnly>("[gray]Enter the end date (yyyy-MM-dd):[/]").Validate(date =>
-                    {
-                        if (date > DateOnly.FromDateTime(DateTime.Now))
-                        {
-                            return ValidationResult.Error("[red]The date cannot be in the future.[/]");
-                        }
-                        if (date < from)
-                        {
-                            return ValidationResult.Error("[red]The end date cannot be earlier than the start date.[/]");
-                        }
-                        return ValidationResult.Success();
-                    }));
-
-                    if (from > to)
-                    {
-                        AnsiConsole.MarkupLine("[red]The start date cannot be later than the end date. Please try again.[/]");
-                        continue;
-                    }
-
-                    await context.Services.Playlist.CreateAsync(context.SelectedUser!, from, to, (progress) =>
-                    {
-                        AnsiConsole.MarkupLine($"[gray]{progress}[/]");
-                    }, cancellationToken);
-
-                    var confirmation = AnsiConsole.Prompt(
-                        new SelectionPrompt<string>()
-                            .Title("[green]Playlist creation completed. Do you want to create another playlist?[/]")
-                            .AddChoices(new[] { "Yes", "No" }));
-
-                    if (confirmation == "No")
-                        break;
-                }
-                break;
-            case "Back":
-                context.ChangeScreen(new UserSelectedScreen());
-                break;
+            context.ChangeScreen(new UserSelectedScreen());
+            return;
         }
+        do
+        {
+            var from = await ScreenUi.ReadDateAsync("From", cancellationToken);
+            var to = await ScreenUi.ReadDateAsync("To", cancellationToken, from);
+            var result = await context.Services.Playlist.CreateAsync(user, from, to, progress =>
+                ScreenUi.Message("Progress", Texts.Get(progress.Stage.ToString()), progress.CurrentRange,
+                    progress.TotalRanges, progress.Fetched, progress.Saved, progress.AlreadyExists, progress.Skipped), cancellationToken);
+            ScreenUi.Message("Created", result.SongCount, result.Path);
+            if (result.SongCount == 0) ScreenUi.Message("Empty");
+            if (result.History.Skipped > 0) ScreenUi.Message("SkippedWarning");
+            if (result.ThumbnailUnavailable) ScreenUi.Message("ThumbnailUnavailable");
+        } while (await ScreenUi.ChooseAsync(Texts.Get("Another"), cancellationToken, "No", "Yes") == "Yes");
+        context.ChangeScreen(new UserSelectedScreen());
     }
 }

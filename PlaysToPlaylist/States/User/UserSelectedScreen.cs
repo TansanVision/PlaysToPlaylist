@@ -1,47 +1,30 @@
-﻿using PlaystoPlaylist.States;
+using PlaystoPlaylist.States;
 using PlaystoPlaylist.States.User;
-using Spectre.Console;
-using System;
-using System.Collections.Generic;
-using System.Text;
+using PlaysToPlaylist.Localization;
 
 namespace PlaysToPlaylist.States.User;
 
 public sealed class UserSelectedScreen : IScreen
 {
-    public async Task ExecuteAsync(
-        ScreenContext context,
-        CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(ScreenContext context, CancellationToken cancellationToken = default)
     {
-        bool isUpdated = false;
-
-        AnsiConsole.Clear();
-
-        if (isUpdated)
-        {
-            AnsiConsole.MarkupLine("[bold green]ユーザー情報を更新しました。[/]");
-        }
-
-        AnsiConsole.MarkupLine("[bold yellow]Attempts To Playlist / Main Menu / User Selected[/]");
-        var menu = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title($"[gray]メニューを選択してください(現在選択しているユーザー: {context.SelectedUser?.Name}({context.SelectedUser?.Id}) ):[/]")
-                .AddChoices(new[] { "Update", "Remove", "Playlist", "Back" }));
-
-        switch (menu)
+        var user = context.SelectedUser;
+        if (user is null) { context.ChangeScreen(new UserSelectScreen()); return; }
+        ScreenUi.Header("UserMenu");
+        switch (await ScreenUi.ChooseAsync(Texts.Get("SelectedUser", user.Name, user.BeatLeaderId), cancellationToken, "Update", "Remove", "Playlist", "Back"))
         {
             case "Update":
-                await context.Services.User.UpdateUserAsync(context.SelectedUser!, cancellationToken);
-                isUpdated = true;
+                context.SelectUser(await context.Services.User.UpdateUserAsync(user, cancellationToken));
+                ScreenUi.Message("Updated");
+                await ScreenUi.PauseAsync(cancellationToken);
                 break;
             case "Remove":
-                await context.Services.User.RemoveAsync(context.SelectedUser!);
+                if (await ScreenUi.ChooseAsync(Texts.Get("ConfirmRemove", user.Name), cancellationToken, "No", "Yes") != "Yes") break;
+                await context.Services.User.RemoveAsync(user);
                 context.ClearSelectedUser();
                 context.ChangeScreen(new UserSelectScreen());
                 break;
-            case "Playlist":
-                context.ChangeScreen(new UserPlaylistScreen());
-                break;
+            case "Playlist": context.ChangeScreen(new UserPlaylistScreen()); break;
             case "Back":
                 context.ClearSelectedUser();
                 context.ChangeScreen(new UserSelectScreen());

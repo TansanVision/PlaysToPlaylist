@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Data;
+using PlaystoPlaylist.Data;
 
 namespace PlaysToPlaylist.Data;
 
@@ -36,16 +36,16 @@ public sealed class HistoryCacheRepository
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = """
-                    SELECT 
-                        COUNT(*) 
-                    FROM 
-                        History_Cache_Days 
-                    WHERE 
-                        user_id = @userId 
+                    SELECT
+                        COUNT(*)
+                    FROM
+                        History_Cache_Days
+                    WHERE
+                        user_id = @userId
                         AND date = @date;
                 """;
                 command.Parameters.AddWithValue("@userId", userId);
-                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
                 var t = command.ExecuteScalar();
 
                 if (t is null)
@@ -54,7 +54,7 @@ public sealed class HistoryCacheRepository
                     return;
                 }
 
-                result = (int)t > 0;
+                result = Convert.ToInt64(t) > 0;
             }, true);
         return result;
     }
@@ -72,20 +72,20 @@ public sealed class HistoryCacheRepository
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = """
-                    INSERT INTO 
+                    INSERT INTO
                         History_Cache_Days (
-                            user_id, 
+                            user_id,
                             date
                         )
                     VALUES (
-                        @userId, 
+                        @userId,
                         @date
                     )
-                    ON CONFLICT(user_id, date) 
+                    ON CONFLICT(user_id, date)
                     DO NOTHING;
                 """;
                 command.Parameters.AddWithValue("@userId", userId);
-                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
                 command.ExecuteNonQuery();
             }, true);
     }
@@ -109,23 +109,23 @@ public sealed class HistoryCacheRepository
             {
                 using var command = connection.CreateCommand();
                 command.CommandText = """
-                    SELECT 
-                        date 
-                    FROM 
-                        History_Cache_Days 
-                    WHERE 
+                    SELECT
+                        date
+                    FROM
+                        History_Cache_Days
+                    WHERE
                         user_id = @userId
                         AND date BETWEEN @from AND @to
                 """;
                 command.Parameters.AddWithValue("@userId", userId);
-                command.Parameters.AddWithValue("@from", from.ToString("yyyy-MM-dd"));
-                command.Parameters.AddWithValue("@to", to.ToString("yyyy-MM-dd"));
+                command.Parameters.AddWithValue("@from", from.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
+                command.Parameters.AddWithValue("@to", to.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture));
 
                 using var reader = command.ExecuteReader();
                 while (reader.Read())
                 {
-                    if (reader["date"] is string dateString && 
-                        DateOnly.TryParse(dateString, out var date))
+                    if (reader["date"] is string dateString &&
+                        DateOnly.TryParseExact(dateString, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
                     {
                         result.Add(date);
                     }

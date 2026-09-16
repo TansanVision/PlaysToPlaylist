@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Models;
+using PlaystoPlaylist.Models;
 
 namespace PlaystoPlaylist.States;
 
@@ -27,10 +27,10 @@ public sealed class ScreenContext(AppServices services)
     /// <summary>
     /// 現在の画面が実行中かどうかを示します。
     /// </summary>
-    public bool IsRunning 
-    { 
-        get; 
-        private set; 
+    public bool IsRunning
+    {
+        get;
+        private set;
     } = true;
 
     /// <summary>
@@ -98,7 +98,19 @@ public sealed class ScreenContext(AppServices services)
                 throw new InvalidOperationException("Current screen is null.");
             }
 
-            await this._currentScreen.ExecuteAsync(this, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await this._currentScreen.ExecuteAsync(this, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or System.IO.IOException
+                or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException or System.Text.Json.JsonException
+                or ArgumentException or InvalidOperationException)
+            {
+                ScreenUi.Message(ScreenUi.ErrorKey(ex), ex.Message);
+                await ScreenUi.PauseAsync(cancellationToken);
+            }
         }
     }
 }

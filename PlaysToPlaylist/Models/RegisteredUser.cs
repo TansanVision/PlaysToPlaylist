@@ -1,4 +1,4 @@
-﻿namespace PlaystoPlaylist.Models;
+namespace PlaystoPlaylist.Models;
 
 /// <summary>
 /// 登録済みユーザーの情報を表すクラスです。
@@ -35,11 +35,7 @@ public sealed class RegisteredUser
     /// <summary>
     /// 名前を取得または設定します。
     /// </summary>
-    public string Name
-    {
-        get;
-        set;
-    }
+    public string Name { get; set; } = string.Empty;
 
     /// <summary>
     /// アバターの URL を取得または設定します。
@@ -49,7 +45,7 @@ public sealed class RegisteredUser
         get;
         set;
     } = string.Empty;
-    
+
     /// <summary>
     /// 作成日時を取得または設定します。
     /// </summary>

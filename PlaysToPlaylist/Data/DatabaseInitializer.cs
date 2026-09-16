@@ -1,4 +1,4 @@
-﻿namespace PlaystoPlaylist.Data;
+namespace PlaystoPlaylist.Data;
 
 /// <summary>
 /// データベースの初期化を行うクラスです。
@@ -92,6 +92,21 @@ public sealed class DatabaseInitializer
                         FOREIGN KEY(user_id) REFERENCES Users(id) ON DELETE CASCADE
                     );
                 ";
+                    command.ExecuteNonQuery();
+                    using var versionCommand = connection.CreateCommand();
+                    versionCommand.CommandText = "PRAGMA user_version;";
+                    var version = Convert.ToInt64(versionCommand.ExecuteScalar());
+                    if (version < 1)
+                    {
+                        // Old versions cached only the first API page; retain scores and refetch ranges.
+                        command.CommandText = """
+                            DELETE FROM History_Cache_Days;
+                            DELETE FROM Plays WHERE user_id NOT IN (SELECT id FROM Users);
+                            PRAGMA user_version = 1;
+                            """;
+                        command.ExecuteNonQuery();
+                    }
+                    command.CommandText = "CREATE INDEX IF NOT EXISTS ix_plays_user_date ON Plays(user_id, played_at);";
                     command.ExecuteNonQuery();
                 }
             },

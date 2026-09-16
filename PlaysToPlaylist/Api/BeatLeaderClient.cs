@@ -1,4 +1,4 @@
-﻿using PlaystoPlaylist.Api.Models;
+using PlaystoPlaylist.Api.Models;
 using System.Net;
 using System.Net.Http.Json;
 
@@ -53,14 +53,8 @@ public sealed class BeatLeaderClient
         string playerId,
         CancellationToken cancellationToken = default)
     {
-        var response =
-            await this._httpClient.GetAsync(
-                $"/player/{Uri.EscapeDataString(playerId)}/exists",
-                cancellationToken);
-
-        return response.IsSuccessStatusCode;
+        return await GetPlayerAsync(playerId, cancellationToken) is not null;
     }
-
     /// <summary>
     /// 指定されたプレイヤー ID に基づいて BeatLeader API からプレイヤー情報を非同期的に取得します。
     /// </summary>
@@ -72,7 +66,7 @@ public sealed class BeatLeaderClient
     {
         return
             GetJsonAsync<Models.BeatLeaderPlayer>(
-                $"/player/{Uri.EscapeDataString(playerId)}", 
+                $"/player/{Uri.EscapeDataString(playerId)}",
                 cancellationToken);
     }
 
@@ -89,18 +83,21 @@ public sealed class BeatLeaderClient
             string playerId,
             DateTimeOffset timeFrom,
             DateTimeOffset timeTo,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            int page = 1, int count = 100)
     {
         var url =
             $"player/{Uri.EscapeDataString(playerId)}/scores" +
             $"?sortBy=date" +
-            $"&order=desc" +
-            $"&time_from={timeFrom.ToUnixTimeSeconds()}" +
+            $"&order=asc&page={page}&count={count}" +
+            // Include the boundary even if the API's lower bound is exclusive.
+            // HistoryService applies the exact [from, to) range locally.
+            $"&time_from={timeFrom.ToUnixTimeSeconds() - 1}" +
             $"&time_to={timeTo.ToUnixTimeSeconds()}";
 
-        return 
+        return
             GetJsonAsync<PlayerScoresResponse>(
-                url, 
+                url,
                 cancellationToken);
     }
 
@@ -171,7 +168,7 @@ public sealed class BeatLeaderClient
             if (remaining > TimeSpan.Zero)
             {
                 await Task.Delay(
-                    remaining, 
+                    remaining,
                     cancellationToken);
             }
 
@@ -201,8 +198,8 @@ public sealed class BeatLeaderClient
 
         if (retryAfter?.Date is not null)
         {
-            var delay = 
-                retryAfter.Date.Value - 
+            var delay =
+                retryAfter.Date.Value -
                 DateTimeOffset.UtcNow;
 
             if (delay > TimeSpan.Zero)
